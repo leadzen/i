@@ -1,0 +1,11 @@
+{
+  "name": "ihope",
+  "version": "0.2.0",
+  "license": "MIT",
+  "scripts": {
+    "build": "rm -fr bin && mkdir bin && mjc src/it.js bin/it && chmod +x bin/it && mjc src/index.js index.js"
+  },
+  "devDependencies": {
+    "macrojs": "^0.2.0"
+  }
+}
