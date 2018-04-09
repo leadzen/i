@@ -1,4 +1,64 @@
 /** -----------------------------------------------------------------------------------------------
+ * lib.js
+ */
+
+function valuetype(any) {
+  return any === null ? "null" : typeof any;
+}
+
+var classtype = function(){
+  var reTrimTag = /\[object |\]/g;
+  return function (any) {
+    return Object.prototype.toString.call(any).replace(reTrimTag, '');
+  }
+}();
+
+
+/** -----------------------------------------------------------------------------------------------
+ * go.js
+ */
+
+function go(gen) {
+  return next();
+  function next(value) {
+    var state = gen.next(value);
+    value = state.value;
+    return state.done
+      ? value
+      : ( classtype(value) === "Generator"
+          ? go(value)
+          : Promise.resolve(value)
+        ).then(next);
+  }
+}
+
+/** -----------------------------------------------------------------------------------------------
+ * assert.js
+ */
+
+var assert = {
+  okey() {
+    this.state = 1;
+    this.it.report(this);
+  },
+
+  fail(reason) {
+    this.state = -1;
+    this.reason = reason;
+    this.it.report(this);
+  }
+}
+
+// class Assert {
+//   constructor(it) {
+//     this.it = it;
+//     // this.desc = null;
+//     this.state = 0;
+//     this.reason = null;
+//     this.time = 0;
+//   }
+// }
+/** -----------------------------------------------------------------------------------------------
  * log.js
  */
 
@@ -61,122 +121,6 @@ var log = function(){
 }();
 
 
-/** -----------------------------------------------------------------------------------------------
- * get.js
- */
-
-var get = function(){
-  var get;
-  if(typeof window === "undefined") {
-    var fs = require("fs");
-    get = function(path) {
-      return fs.readFileSync(path, "utf-8");
-    }
-  }
-  else {
-    get = function(path) {
-      var http = new XHLHttpRequest;
-      http.open("GET", path, false);
-      http.send();
-      return http.status / 100 ^ 2 ? '' : http.resopnseText;
-    }
-  }
-
-  return get;
-}();
-
-
-/** -----------------------------------------------------------------------------------------------
- * getcode.js
- */
-
-var getcode = function(){
-
-  function getcode(path) {
-    if(path in cache) {
-      path = cache[path];
-    }
-    else {
-      path = cache[path] = get(path);
-    }
-  }
-
-  var cache = {};
-  
-  return getcode;
-}();
-
-/** -----------------------------------------------------------------------------------------------
- * getline.js
- */
-
- var getline = function() {
-  function getline(path) {
-    if(path in cache) {
-      path = cache[path];
-    }
-    else {
-      path = cache[path] = get(path).split("\n");
-    }
-    return path;
-  }
-
-  var cache = {};
-
-  return getline;
- }();
-/** -----------------------------------------------------------------------------------------------
- * where.js
- */
-
-var where = function() {
-  function _where_(deep) {
-    deep = Number(deep)
-    var stack = Error().stack.split("\n");
-    for (var i = 0, line; line = stack[i++];) {
-      if (line.match(reWhere)) break;
-    }
-    if (i < stack.length) {
-      var ms = String(stack[i + deep]).match(reHere);
-      if (ms)
-        return {
-          trace: ms[0],
-          loc: ms[1],
-          row: ms[2] - 1,
-          col: ms[3] - 1
-        };
-    }
-  }
-
-  var reWhere = RegExp('\\b' + _where_.name + '\\b');
-  var reHere = /((?:https?:\/\/[\w.-]+(?::\d+)?|)[\w./@-]+(?:\?.*|)):(\d+):(\d+)/;
-    
-  return _where_;
-}();
-
-// module.exports = where;
-/** -----------------------------------------------------------------------------------------------
- * dent.js
- */
-
-var dent = function(){
-  function dent(text, space) {
-    text = String(text);
-    if(arguments.length<2) {
-      var spaces = text.match(reSpaces);
-      for(var i=0; i<spaces.length; i++) {
-        if(!(spaces[i] > space)) {
-          space = spaces[i];
-        }
-      }
-    }
-    space = RegExp('^'+space, 'gm');
-    return text.replace(space, '');
-  }
-  var reSpaces = /^\s*/gm;
-
-  return dent;
-}();
 
 /** -----------------------------------------------------------------------------------------------
  * i.js
@@ -184,14 +128,14 @@ var dent = function(){
 
 var I = function () {
   class I {
-    constructor(parent, topic, func, time) {
+    constructor(parent, topic, func) {
       this.level = parent ? parent.level + 1 : 0;
       this.parent = parent;
       this.topic = topic;
       this.func = func;
       this.its = [];
       this.spaces = SPACE.repeat(this.level);
-      this.time = time | 0;
+      this.time = 0;
       this.state = 0;   // 0: pending, 1: done, -1: canceled;
 
       if (!parent) {
@@ -199,9 +143,29 @@ var I = function () {
       }
     }
 
-    do(topic, func, time) {
-      var it = new I(this, topic, func, time)
+    do(topic, func) {
+      var it = new I(this, topic, func)
       this.its.push(it);
+      return {
+        in(time) {
+          it.time = time;
+        }
+      };
+    }
+
+    for(topic, func) {
+      var it = new I(this, topic, func);
+      this.its.push(it);
+      return {
+        to(func) {
+          it.done = func;
+          return {
+            in(time) {
+              it.time = time;
+            }
+          }
+        }
+      };
     }
 
     log() {
@@ -214,27 +178,11 @@ var I = function () {
       });
     }
 
-    get source() {
-      var trace = this.trace;
-      if (trace) {
-        var lines = getline(trace.loc), row = trace.row, len = 1;
-        var endding = where(3);
-        if (trace.loc === endding.loc) {
-          if (endding.row > row) {
-            len += endding.row - row;
-          }
-        }
-        lines = lines.slice(row, row + len);
-
-        return dent(lines.join("\n"));
-      }
-    }
-
     report(assert) {
-      if(assert.state > 0) {
+      if (assert.state > 0) {
         this.log("#2%s", assert.desc);
       }
-      else if (assert.state<0) {
+      else if (assert.state < 0) {
         this.log("#1%s", assert.desc);
       }
       else {
@@ -255,29 +203,61 @@ var I = function () {
     },
 
     //定义断言方法
-    $define(name, method) {
-      Object.defineProperty(I.prototype, name, {
-        get: function () {
-          this.trace = where(1);
-          return method;
-        }
-      });
+    $defineAsserts(prototype) {
+      Object.defineProperties(I.prototype, Object.getOwnPropertyDescriptors(prototype));
+    },
+
+    $defineVerbs(prototype) {
+      Object.defineProperties(assert, Object.getOwnPropertyDescriptors(prototype));
     }
 
   }
 
   function run(it) {
-    var promise = Promise.resolve(it.parent.log(it.topic));
-    if (it.func) {
-      promise = promise.then(it.func.bind(it, it));
+    it.parent.log(it.topic);
+    var func = it.func;
+    var value;
+    if(func) {
+      var done = it.done;
+      if(done) {
+        value = new Promise(func)
+          .then(checkstate)
+          .then(it.done.bind(undefined, it));
+      }
+      else {
+        value = func(it);
+        if(classtype(value) === "Generator") {
+          value = go(value);
+        }
+        else {
+          value = Promise.resolve(value).then(checkstate);
+        }
+      }
+
       if (it.time) {
-        promise = Promise.race([timeout(it.time), promise]);
+        value = timeout(value, it.time);
       }
     }
-    return promise.then(runs.bind(it.its))
+    else {
+      value = Promise.resolve();
+    }
+
+    return value.then(runs.bind(it.its))
+      .then(function () {
+        it.state = 1;
+      })
       .catch(function (error) {
-        it.log("#1%s", error && (error.message || error));
+        if (error) {
+          it.log("#1%s", error.message || error);
+        }
+        it.state = -1;
       });
+    
+    function checkstate(value) {
+      if(it.state)
+        throw undefined;
+      return value;
+    }
   }
 
   function runs() {
@@ -291,7 +271,17 @@ var I = function () {
     }
   }
 
-  function timeout(time) {
+  function timeout(promise, time) {
+    return Promise.race([
+      promise.then(function(value){
+        clearTimeout(time);
+        return value;
+      }),
+      new Promise(function(resolve, reject){
+        time = setTimeout(reject, time, Error("Timeout " + time));
+      })
+    ]);
+
     return new Promise(function (resolve, reject) {
       setTimeout(reject, time, Error("Error: Timeout " + time));
     });

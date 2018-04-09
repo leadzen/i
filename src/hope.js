@@ -1,22 +1,38 @@
 //#include ./assert.js
+//#include ./where.js
+//#include ./getline.js
+//#include ./dent.js
+//#include ./i.js
 
-(function(){
+(function () {
 
-  I.$define("hope", hope);
-
-  function hope(any) {
-    var it = this;
-    var assert = new Hope(it);
-    assert.any = any;
-    return assert;
-  }
-
-  class Hope extends Assert{
-    constructor(it) {
-      super(it);
+  I.$defineAsserts({
+    hope(any) {
+      return Object.setPrototypeOf({
+        it: this,
+        time: Date.now(),
+        trace: where(1),
+        any: any
+      }, hope);
     }
-    get ok() {
-      this.any ? this.okey() : this.fail("not ok");
+  });
+
+  var hope = Object.setPrototypeOf({
+    get desc() {
+      var trace = this.trace;
+      if (trace) {
+        var loc = trace.loc, row = trace.row, lines = getline(loc), end;
+        var endding = where(loc);
+        if (endding && endding.row > row) {
+          end = endding.row + 1;
+        }
+        else {
+          end = row + 1;
+        }
+        lines = lines.slice(row, end);
+        return dent(lines.join("\n"));
+      }
     }
-  }
+  }, assert);
+
 })();

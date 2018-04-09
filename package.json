@@ -7,5 +7,8 @@
   },
   "devDependencies": {
     "macrojs": "^0.2.0"
+  },
+  "dependencies": {
+    "co": "^4.6.0"
   }
 }

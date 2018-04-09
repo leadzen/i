@@ -1,7 +1,6 @@
+//#include ./go.js
+//#include ./assert.js
 //#include ./log.js
-//#include ./getline.js
-//#include ./where.js
-//#include ./dent.js
 
 /** -----------------------------------------------------------------------------------------------
  * i.js
@@ -9,14 +8,14 @@
 
 var I = function () {
   class I {
-    constructor(parent, topic, func, time) {
+    constructor(parent, topic, func) {
       this.level = parent ? parent.level + 1 : 0;
       this.parent = parent;
       this.topic = topic;
       this.func = func;
       this.its = [];
       this.spaces = SPACE.repeat(this.level);
-      this.time = time | 0;
+      this.time = 0;
       this.state = 0;   // 0: pending, 1: done, -1: canceled;
 
       if (!parent) {
@@ -24,9 +23,29 @@ var I = function () {
       }
     }
 
-    do(topic, func, time) {
-      var it = new I(this, topic, func, time)
+    do(topic, func) {
+      var it = new I(this, topic, func)
       this.its.push(it);
+      return {
+        in(time) {
+          it.time = time;
+        }
+      };
+    }
+
+    for(topic, func) {
+      var it = new I(this, topic, func);
+      this.its.push(it);
+      return {
+        to(func) {
+          it.done = func;
+          return {
+            in(time) {
+              it.time = time;
+            }
+          }
+        }
+      };
     }
 
     log() {
@@ -39,27 +58,11 @@ var I = function () {
       });
     }
 
-    get source() {
-      var trace = this.trace;
-      if (trace) {
-        var lines = getline(trace.loc), row = trace.row, len = 1;
-        var endding = where(3);
-        if (trace.loc === endding.loc) {
-          if (endding.row > row) {
-            len += endding.row - row;
-          }
-        }
-        lines = lines.slice(row, row + len);
-
-        return dent(lines.join("\n"));
-      }
-    }
-
     report(assert) {
-      if(assert.state > 0) {
+      if (assert.state > 0) {
         this.log("#2%s", assert.desc);
       }
-      else if (assert.state<0) {
+      else if (assert.state < 0) {
         this.log("#1%s", assert.desc);
       }
       else {
@@ -80,29 +83,61 @@ var I = function () {
     },
 
     //定义断言方法
-    $define(name, method) {
-      Object.defineProperty(I.prototype, name, {
-        get: function () {
-          this.trace = where(1);
-          return method;
-        }
-      });
+    $defineAsserts(prototype) {
+      Object.defineProperties(I.prototype, Object.getOwnPropertyDescriptors(prototype));
+    },
+
+    $defineVerbs(prototype) {
+      Object.defineProperties(assert, Object.getOwnPropertyDescriptors(prototype));
     }
 
   }
 
   function run(it) {
-    var promise = Promise.resolve(it.parent.log(it.topic));
-    if (it.func) {
-      promise = promise.then(it.func.bind(it, it));
+    it.parent.log(it.topic);
+    var func = it.func;
+    var value;
+    if(func) {
+      var done = it.done;
+      if(done) {
+        value = new Promise(func)
+          .then(checkstate)
+          .then(it.done.bind(undefined, it));
+      }
+      else {
+        value = func(it);
+        if(classtype(value) === "Generator") {
+          value = go(value);
+        }
+        else {
+          value = Promise.resolve(value).then(checkstate);
+        }
+      }
+
       if (it.time) {
-        promise = Promise.race([timeout(it.time), promise]);
+        value = timeout(value, it.time);
       }
     }
-    return promise.then(runs.bind(it.its))
+    else {
+      value = Promise.resolve();
+    }
+
+    return value.then(runs.bind(it.its))
+      .then(function () {
+        it.state = 1;
+      })
       .catch(function (error) {
-        it.log("#1%s", error && (error.message || error));
+        if (error) {
+          it.log("#1%s", error.message || error);
+        }
+        it.state = -1;
       });
+    
+    function checkstate(value) {
+      if(it.state)
+        throw undefined;
+      return value;
+    }
   }
 
   function runs() {
@@ -116,7 +151,17 @@ var I = function () {
     }
   }
 
-  function timeout(time) {
+  function timeout(promise, time) {
+    return Promise.race([
+      promise.then(function(value){
+        clearTimeout(time);
+        return value;
+      }),
+      new Promise(function(resolve, reject){
+        time = setTimeout(reject, time, Error("Timeout " + time));
+      })
+    ]);
+
     return new Promise(function (resolve, reject) {
       setTimeout(reject, time, Error("Error: Timeout " + time));
     });
